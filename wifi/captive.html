@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Set wifi</title>
+    <link rel="icon" href="data:," />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style type="text/css">
+      body {
+        font-family: sans-serif;
+      }
+      label {
+        width: 90px;
+        display: inline-block;
+      }
+      input {
+        width: 150px;
+        margin: 5px 0px 5px 0px;
+      }
+      .content {
+        width: 255px;
+        min-height: 300px;
+        margin: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div style="height: 20%">&nbsp;</div>
+    <div class="content">
+      <h3>Set wifi</h3>
+      <form action="/" method="post">
+        <label for="ssid">SSID:</label>
+        <input type="text" id="ssid" name="ssid" /><br />
+        <label for="password">Password:</label>
+        <input type="text" id="password" name="password" /><br />
+        <label>&nbsp;</label>
+        <input type="submit" value="Submit" style="width: 90px;" /><br />
+      </form>
+      <form action="/" method="post">
+        <input type="hidden" id="reboot" name="reboot" value="1"/><br />
+        <label>&nbsp;</label>
+        <input type="submit" value="Reboot" style="width: 90px;" /><br />
+      </form>
+    </div>
+  </body>
+</html>
