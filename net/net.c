@@ -77,6 +77,7 @@ static void listen_task(void* data) {
         conn->sock = sock;
         conn->flags.own_task = server->flags.own_task || (server->max_connections != 1);
         conn->flags.shutdown_server = 0;
+        conn->client_data = server->client_data;
         if (conn->flags.own_task) {
             xTaskCreate(server->client_task, "net_client_task", server->client_task_stack_depth, conn, server->client_task_priority, NULL);
         } else {

@@ -12,7 +12,7 @@
 #include "dns.h"
 #include "net.h"
 
-#define BUFFER_SIZE 256
+#define BUFFER_SIZE 512
 #define OUT_BUFFER_SIZE 100
 #define STRLEN(s) (sizeof(s) / sizeof(s[0]) - 1)
 

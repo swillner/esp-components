@@ -10,6 +10,7 @@ enum {
 
 struct net_connection_t {
     int sock;
+    void* client_data;
     struct {
         uint8_t own_task : 1;        /* is set if client task has its own task (i.e. max_connections != 1) */
         uint8_t shutdown_server : 1; /* can be set by client task to shutdown server (only when max_connections == 1) */
@@ -28,6 +29,7 @@ struct net_server_t {
     TaskFunction_t client_task;
     configSTACK_DEPTH_TYPE client_task_stack_depth;
     UBaseType_t client_task_priority;
+    void* client_data;
 
     struct {
         uint8_t own_task : 1;
