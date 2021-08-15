@@ -4,14 +4,17 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 //
-#include <driver/uart.h>
 #include <esp_log.h>
 #include <lwip/sockets.h>
 #include <string.h>
 
+#ifdef TELNET_UART_SUPPORT
+#include <driver/uart.h>
+#endif
+
 #include "net.h"
 
-//#define TELNET_DEBUG
+// #define TELNET_DEBUG
 #ifdef TELNET_DEBUG
 #define TELCMDS
 #define TELOPTS
@@ -56,7 +59,7 @@ struct telnet_connection_t {
     SemaphoreHandle_t mutex;
 };
 
-// TODO only enable uart when configured at build time
+#ifdef TELNET_UART_SUPPORT
 static struct telnet_config_t {
     uart_port_t uart;
     gpio_num_t dtr_pin;
@@ -65,6 +68,7 @@ static struct telnet_config_t {
     QueueHandle_t uart_queue;
     TaskHandle_t uart_event_task;
 } config;
+#endif
 
 static inline int get_prompt_len(struct telnet_connection_t* conn) { return ARRAYLEN(prompt) - (conn->options[TELOPT_SGA].local_enabled ? 2 : 0); }
 
@@ -123,6 +127,7 @@ static int add_to_outbuf_escaped(struct telnet_connection_t* conn, const unsigne
 }
 
 static int process_line(struct telnet_connection_t* conn) {
+#ifdef TELNET_UART_SUPPORT
     if (conn->options[TELOPT_COM_PORT].remote_enabled) {
         ESP_LOGI(TAG, "received line of length %u", conn->inpos - conn->inbuf);
         int res = uart_write_bytes(config.uart, (const char*)conn->inbuf, conn->inpos - conn->inbuf);
@@ -132,7 +137,14 @@ static int process_line(struct telnet_connection_t* conn) {
         conn->inpos = conn->inbuf + (conn->inbuf - conn->inpos + res);
         return 0;
     }
-    ESP_LOGI(TAG, "received line %.*s", conn->inpos - conn->inbuf, conn->inbuf);
+#endif
+#ifdef TELNET_DEBUG
+    if (conn->options[TELOPT_BINARY].local_enabled) {
+        ESP_LOGI(TAG, "received line of length %u", conn->inpos - conn->inbuf);
+    } else {
+        ESP_LOGI(TAG, "received line %.*s", conn->inpos - conn->inbuf, conn->inbuf);
+    }
+#endif
     conn->inpos = conn->inbuf;
     return add_to_outbuf(conn, prompt, get_prompt_len(conn));
 }
@@ -176,6 +188,7 @@ static void log_command(const char* prefix, unsigned char command, unsigned char
 #define log_command(prefix, command, option)
 #endif
 
+#ifdef TELNET_UART_SUPPORT
 static void uart_event_task(void* data) {
     struct telnet_connection_t* conn = data;
     uart_event_t event;
@@ -185,44 +198,51 @@ static void uart_event_task(void* data) {
         if (xQueueReceive(config.uart_queue, (void*)&event, portMAX_DELAY)) {
             switch (event.type) {
                 case UART_DATA:
+#ifdef TELNET_DEBUG
                     ESP_LOGI(TAG, "uart received %d bytes", event.size);
+#endif
                     while (event.size > 0) {
                         int l = event.size > ARRAYLEN(buf) ? ARRAYLEN(buf) : event.size;
                         uart_read_bytes(config.uart, buf, l, portMAX_DELAY);
                         add_to_outbuf_escaped(conn, buf, l);
                         event.size -= l;
                     }
+                    xSemaphoreTake(conn->mutex, portMAX_DELAY);
+                    send_outbuf(conn);
+                    xSemaphoreGive(conn->mutex);
                     break;
 
                 case UART_FIFO_OVF:
-                    ESP_LOGI(TAG, "uart fifo overflow");
+                    ESP_LOGW(TAG, "uart fifo overflow");
                     uart_flush_input(config.uart);
                     xQueueReset(config.uart_queue);
                     break;
 
                 case UART_BUFFER_FULL:
-                    ESP_LOGI(TAG, "uart buffer full");
+                    ESP_LOGW(TAG, "uart buffer full");
                     uart_flush_input(config.uart);
                     xQueueReset(config.uart_queue);
                     break;
 
                 case UART_PARITY_ERR:
-                    ESP_LOGI(TAG, "uart parity error");
+                    ESP_LOGW(TAG, "uart parity error");
                     break;
 
                 case UART_FRAME_ERR:
-                    ESP_LOGI(TAG, "uart frame error");
+                    ESP_LOGW(TAG, "uart frame error");
                     break;
 
                 default:
-                    ESP_LOGI(TAG, "uart unknown event %d", event.type);
+                    ESP_LOGW(TAG, "uart unknown event %d", event.type);
                     break;
             }
         }
     }
     vTaskDelete(NULL);
 }
+#endif
 
+#ifdef TELNET_UART_SUPPORT
 static int handle_com_port_option(struct telnet_connection_t* conn, unsigned char option, uint32_t value) {
     switch (option) {
         case TELNET_COM_PORT_SET_BAUDRATE:
@@ -363,51 +383,44 @@ static int handle_com_port_option(struct telnet_connection_t* conn, unsigned cha
             break;
 
         case TELNET_COM_PORT_SET_CONTROL:
-            ESP_LOGI(TAG, "COM-PORT set-control %u", value);  // TODO
             switch (value) {
-                case 0: /* Request Com Port Flow Control Setting (outbound/both) */
+                case 0:  /* Request Com Port Flow Control Setting (outbound/both) */
+                case 1:  /* Use No Flow Control (outbound/both) */
+                case 2:  /* Use XON/XOFF Flow Control (outbound/both) */
+                case 3:  /* Use HARDWARE Flow Control (outbound/both) */
+                case 4:  /* Request BREAK State */
+                case 5:  /* Set BREAK State ON */
+                case 6:  /* Set BREAK State OFF */
+                case 7:  /* Request DTR Signal State */
+                case 10: /* Request RTS Signal State */
+                case 13: /* Request Com Port Flow Control Setting (inbound) */
+                case 14: /* Use No Flow Control (inbound) */
+                case 15: /* Use XON/XOFF Flow Control (inbound) */
+                case 16: /* Use HARDWARE Flow Control (inbound) */
+                case 17: /* Use DCD Flow Control (outbound/both) */
+                case 18: /* Use DTR Flow Control (inbound) */
+                case 19: /* Use DSR Flow Control (outbound/both) */
+                    ESP_LOGI(TAG, "COM-PORT set-control unsupported %u", value);
                     break;
-                case 1: /* Use No Flow Control (outbound/both) */
-                    break;
-                case 2: /* Use XON/XOFF Flow Control (outbound/both) */
-                    break;
-                case 3: /* Use HARDWARE Flow Control (outbound/both) */
-                    break;
-                case 4: /* Request BREAK State */
-                    break;
-                case 5: /* Set BREAK State ON */
-                    break;
-                case 6: /* Set BREAK State OFF */
-                    break;
-                case 7: /* Request DTR Signal State */
-                    break;
+
                 case 8: /* Set DTR Signal State ON */
+                    ESP_LOGI(TAG, "COM-PORT set-control DTR ON");
                     gpio_set_level(config.dtr_pin, 0);
                     break;
+
                 case 9: /* Set DTR Signal State OFF */
+                    ESP_LOGI(TAG, "COM-PORT set-control DTR OFF");
                     gpio_set_level(config.dtr_pin, 1);
                     break;
-                case 10: /* Request RTS Signal State */
-                    break;
+
                 case 11: /* Set RTS Signal State ON */
+                    ESP_LOGI(TAG, "COM-PORT set-control RTS ON");
                     gpio_set_level(config.rts_pin, 0);
                     break;
+
                 case 12: /* Set RTS Signal State OFF */
+                    ESP_LOGI(TAG, "COM-PORT set-control RTS OFF");
                     gpio_set_level(config.rts_pin, 1);
-                    break;
-                case 13: /* Request Com Port Flow Control Setting (inbound) */
-                    break;
-                case 14: /* Use No Flow Control (inbound) */
-                    break;
-                case 15: /* Use XON/XOFF Flow Control (inbound) */
-                    break;
-                case 16: /* Use HARDWARE Flow Control (inbound) */
-                    break;
-                case 17: /* Use DCD Flow Control (outbound/both) */
-                    break;
-                case 18: /* Use DTR Flow Control (inbound) */
-                    break;
-                case 19: /* Use DSR Flow Control (outbound/both) */
                     break;
             }
             break;
@@ -418,11 +431,12 @@ static int handle_com_port_option(struct telnet_connection_t* conn, unsigned cha
             break;
 
         default:
-            ESP_LOGI(TAG, "COM-PORT unknown %u %u", option, value);
+            ESP_LOGW(TAG, "COM-PORT unknown %u %u", option, value);
             break;
     }
     return 0;
 }
+#endif
 
 static inline int handle_option(struct telnet_connection_t* conn, unsigned char command, unsigned char option) {
     switch (command) {
@@ -468,10 +482,12 @@ static inline int handle_option(struct telnet_connection_t* conn, unsigned char 
 #endif
                                 return add_to_outbuf(conn, (const unsigned char[]){IAC, SB, TELOPT_LINEMODE, LM_MODE, MODE_EDIT | MODE_TRAPSIG, IAC, SE}, 7);
 
+#ifdef TELNET_UART_SUPPORT
                             case TELOPT_COM_PORT:
                                 ESP_ERROR_CHECK(uart_driver_install(config.uart, 2 * UART_FIFO_LEN, 0, 10, &config.uart_queue, 0));
                                 xTaskCreate(uart_event_task, "uart_event_task", 2048, conn, 2, &config.uart_event_task);
                                 return add_to_outbuf(conn, (const unsigned char[]){IAC, WILL, TELOPT_BINARY}, 3);
+#endif
                         }
                     }
                     return res;
@@ -514,7 +530,9 @@ static void handle_client_task(void* data) {
     conn.options[TELOPT_TM].local_supported = 1;
     conn.options[TELOPT_TM].remote_supported = 1;
     conn.options[TELOPT_LINEMODE].remote_supported = 1;
+#ifdef TELNET_UART_SUPPORT
     conn.options[TELOPT_COM_PORT].remote_supported = config.uart_enabled;
+#endif
     // TODO conn.options[TELOPT_AUTHENTICATION]
     // TODO conn.options[TELOPT_ENCRYPT]
     // TODO conn.options[TELOPT_NEW_ENVIRON]
@@ -680,11 +698,13 @@ static void handle_client_task(void* data) {
 #ifdef TELNET_DEBUG
                             ESP_LOGI(TAG, "recv IAC SE");
 #endif
+#ifdef TELNET_UART_SUPPORT
                             if (option == TELOPT_COM_PORT && suboption == TELNET_COM_PORT_SET_BAUDRATE) {
                                 if (handle_com_port_option(&conn, suboption, value)) {
                                     goto exit_task;
                                 }
                             }
+#endif
                             state = READ_REGULAR;
                         }
                         break;
@@ -720,6 +740,7 @@ static void handle_client_task(void* data) {
                                 }
                                 break;
 
+#ifdef TELNET_UART_SUPPORT
                             case TELOPT_COM_PORT:
                                 if (val_pos == 0) {
                                     suboption = c;
@@ -732,12 +753,18 @@ static void handle_client_task(void* data) {
                                     }
                                 }
                                 break;
+#endif
                         }
                     }
                     ++val_pos;
                     break;
             }
             prev = c;
+        }
+        if (conn.options[TELOPT_BINARY].local_enabled && conn.inpos > conn.inbuf) {
+            if (process_line(&conn)) {
+                goto exit_task;
+            }
         }
         xSemaphoreTake(conn.mutex, portMAX_DELAY);
         if (send_outbuf(&conn)) {
@@ -749,10 +776,12 @@ static void handle_client_task(void* data) {
 
 exit_task:
     // TODO cancel subtask
+#ifdef TELNET_UART_SUPPORT
     if (conn.options[TELOPT_COM_PORT].remote_enabled) {
         uart_driver_delete(config.uart);
         vTaskDelete(config.uart_event_task);
     }
+#endif
     net_free_connection(net_conn);
 }
 
@@ -765,10 +794,15 @@ static struct net_server_t server = {
 };
 
 void telnet_start() {
+#ifdef TELNET_UART_SUPPORT
     config.uart_enabled = 0;
+#else
+    (void)add_to_outbuf_escaped;
+#endif
     net_start_server(&server, 1);
 }
 
+#ifdef TELNET_UART_SUPPORT
 void telnet_start_with_uart(uart_port_t uart, gpio_num_t dtr_pin, gpio_num_t rts_pin) {
     config.uart_enabled = 1;
     config.uart = uart;
@@ -778,5 +812,6 @@ void telnet_start_with_uart(uart_port_t uart, gpio_num_t dtr_pin, gpio_num_t rts
     ESP_ERROR_CHECK(gpio_set_direction(rts_pin, GPIO_MODE_OUTPUT));
     net_start_server(&server, 1);
 }
+#endif
 
 void telnet_stop() { net_stop_server(&server); }

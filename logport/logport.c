@@ -24,7 +24,7 @@ static int IRAM_ATTR logport_putc(int c) {
     xSemaphoreTake(mutex, portMAX_DELAY);
     *pos = c;
     if (c == '\n' || pos == buf + BUFFER_SIZE - 1) {
-        if (conn && net_send_all(conn->sock, buf, BUFFER_SIZE, TAG) < 0) {
+        if (conn && net_send_all(conn->sock, buf, pos + 1 - buf, TAG) < 0) {
             xEventGroupSetBits(event_group, LOGPORT_DISCONNECTED);
         }
         pos = buf;
