@@ -182,7 +182,18 @@ enum max3421e_result_t {
     hrBABBLE = 0x0F,    // Device talked too long
 };
 
+// see https://www.beyondlogic.org/usbnutshell/usb6.shtml#StandardDeviceRequests
+#define USB_REQUEST_GET_STATUS 0x00
+#define USB_REQUEST_CLEAR_FEATURE 0x01
+#define USB_REQUEST_SET_FEATURE 0x03
+#define USB_REQUEST_SET_ADDRESS 0x05
+#define USB_REQUEST_GET_DESCRIPTOR 0x06
+#define USB_REQUEST_SET_DESCRIPTOR 0x07
+#define USB_REQUEST_GET_CONFIGURATION 0x08
+#define USB_REQUEST_SET_CONFIGURATION 0x09
+
 #define USB_DESCRIPTOR_TYPE_DEVICE 0x0100
-#define USB_REQUEST_GET_DESCRIPTOR 0x0006
+#define USB_DESCRIPTOR_TYPE_CONFIGURATION 0x0200
+#define USB_DESCRIPTOR_TYPE_STRING 0x0300
 
 #endif

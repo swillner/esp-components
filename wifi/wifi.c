@@ -78,7 +78,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base, int event
             case WIFI_EVENT_STA_START:
                 status_set(STATUS_LED_MID);
                 xTimerReset(timeout_timer, portMAX_DELAY);
-                ESP_ERROR_CHECK(esp_wifi_connect());
+                esp_wifi_connect();
                 retry_cnt = 0;
                 ESP_LOGI(TAG, "trying to connect to access point");
                 break;
@@ -177,6 +177,11 @@ void wifi_connect() {
 void wifi_start_access_point() {
     xTimerStop(timeout_timer, portMAX_DELAY);
     xEventGroupClearBits(wifi_events, WIFI_EVENT_CONNECTED);
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0)
+    esp_netif_create_default_wifi_ap();
+#endif
+
     wifi_config_t wifi_config = {
         .ap = {.ssid = AP_SSID, .ssid_len = strlen(AP_SSID), .password = AP_PASS, .max_connection = 1, .authmode = WIFI_AUTH_WPA_WPA2_PSK},
     };

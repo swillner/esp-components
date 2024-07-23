@@ -16,10 +16,24 @@ static const char* TAG = "logport";
 
 static struct net_connection_t* conn = NULL;
 static char buf[BUFFER_SIZE];
-static char* pos = buf;
 static SemaphoreHandle_t mutex;
 static EventGroupHandle_t event_group;
 
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0)
+
+static int IRAM_ATTR logport_vprintf(const char* args, va_list vargs) {
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    int rc = vsnprintf(buf, BUFFER_SIZE, args, vargs);
+    if (rc > 0 && conn && net_send_all(conn->sock, buf, rc, TAG) < 0) {
+        xEventGroupSetBits(event_group, LOGPORT_DISCONNECTED);
+    }
+    xSemaphoreGive(mutex);
+    return rc;
+}
+
+#else
+
+static char* pos = buf;
 static int IRAM_ATTR logport_putc(int c) {
     xSemaphoreTake(mutex, portMAX_DELAY);
     *pos = c;
@@ -34,6 +48,8 @@ static int IRAM_ATTR logport_putc(int c) {
     xSemaphoreGive(mutex);
     return c;
 }
+
+#endif
 
 static void handle_client_task(void* data) {
     xEventGroupClearBits(event_group, LOGPORT_DISCONNECTED);
@@ -63,7 +79,11 @@ void logport_start() {
     event_group = xEventGroupCreate();
     mutex = xSemaphoreCreateMutex();
     ESP_LOGI(TAG, "switching logging output to port %u", PORT);
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 0, 0)
+    esp_log_set_vprintf(logport_vprintf);
+#else
     esp_log_set_putchar(logport_putc);
+#endif
     net_start_server(&server, 1);
 }
 

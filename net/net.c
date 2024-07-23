@@ -11,7 +11,7 @@
 
 static const char* TAG = "net";
 
-static uint16_t last_loopback_port = 32768;
+static uint16_t last_loopback_port = 8096; //32768;
 static SemaphoreHandle_t last_loopback_port_mutex;
 
 void net_init() { last_loopback_port_mutex = xSemaphoreCreateMutex(); }
@@ -193,16 +193,6 @@ int net_loopback_select(struct net_loopback_sock_t* sock, int other_sock) {
 }
 
 int net_loopback_sock_new(struct net_loopback_sock_t* sock) {
-    xSemaphoreTake(last_loopback_port_mutex, portMAX_DELAY);
-    sock->port = last_loopback_port++;
-    xSemaphoreGive(last_loopback_port_mutex);
-
-    struct sockaddr_in dest = {
-        .sin_addr = {.s_addr = htonl(INADDR_LOOPBACK)},
-        .sin_family = AF_INET,
-        .sin_port = htons(sock->port),
-    };
-
     sock->recv = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
     sock->send = -1;
 
@@ -211,11 +201,26 @@ int net_loopback_sock_new(struct net_loopback_sock_t* sock) {
         return -1;
     }
 
-    if (bind(sock->recv, (struct sockaddr*)&dest, sizeof(dest))) {
-        ESP_LOGE(TAG, "loopback bind failed for port %u: %s", sock->port, strerror(errno));
-        net_loopback_sock_close(sock);
-        return -1;
+    xSemaphoreTake(last_loopback_port_mutex, portMAX_DELAY);
+    while (1) {
+        sock->port = last_loopback_port++;
+        struct sockaddr_in dest = {
+            .sin_addr = {.s_addr = htonl(INADDR_LOOPBACK)},
+            .sin_family = AF_INET,
+            .sin_port = htons(sock->port),
+        };
+
+        if (bind(sock->recv, (struct sockaddr*)&dest, sizeof(dest))) {
+            if (errno == EADDRINUSE) {
+                continue;
+            }
+            ESP_LOGE(TAG, "loopback bind failed for port %u: %s", sock->port, strerror(errno));
+            net_loopback_sock_close(sock);
+            return -1;
+        }
+        break;
     }
+    xSemaphoreGive(last_loopback_port_mutex);
 
     sock->send = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
 
